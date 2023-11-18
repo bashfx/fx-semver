@@ -160,8 +160,11 @@
 
 
   is_repo(){
-    find . -maxdepth 1 -type d -name ".git" >/dev/null 2>&1
+    local count=$(find . -maxdepth 1 -type d -name ".git" | wc -l | awk '{print $1}')
+    [ $count -gt 0 ] && return 0
+    return 1
   }
+
 
   is_not_pending(){
     local res=$(git status --porcelain)
@@ -190,8 +193,14 @@
   }
 
   do_latest_tag(){
-    git tag | sort -V | tail -n1
+    if is_repo; then
+      latest=$(git tag | sort -V | tail -n1)
+      echo "$latest"
+      [ -n "$latest" ] && return 0 || :
+    fi
+    return 1
   }
+
 
   do_find_rev(){
     local ref=$1
@@ -464,6 +473,8 @@
     info "Bump latest[ $latest ] -> new[ $val ] (run:${force_bump})"
     if [ $force_bump -eq 0 ]; then
         do_retag "$val" "$latest"
+    else
+      echo "$val"
     fi
 
   }
@@ -497,6 +508,36 @@
     done <<< "$_content"
   }
 
+  do_auto(){
+    local arg=$1 
+    info "try auto"
+
+    #try to get the version of a files parent dir
+    if [ -f "$arg" ]; then
+      parent_dir=$(dirname "$arg")
+      if [ -d "$parent_dir" ]; then
+        arg="$parent_dir"
+      fi
+    fi
+
+    if [ -d "$arg" ]; then
+      info 'is arg a dir'
+      cd "$arg"
+      if is_repo; then
+        echo "$(do_latest_tag)"
+        return 0
+      else
+        echo "$PWD"
+        return 1
+      fi      
+    else
+      warn "arg was not a dir $arg"
+    fi
+
+    return 1
+
+  }
+
 #-------------------------------------------------------------------------------
 # FX
 #-------------------------------------------------------------------------------
@@ -512,18 +553,20 @@
       latest)   cmd='do_latest_tag';;
       mark1)    cmd='do_mark_1';;
       tags)     cmd='do_tags';;
+      auto)     cmd='do_auto';;
       pend)     cmd='do_pending';;
       file)     cmd='do_build_file';;
       insp*)    cmd='do_inspect';;
       next)     cmd='do_bump';;
       bump)     cmd='do_bump'; arg=0;;
-
       *)
         if [ ! -z "$call" ]; then
+      
           err="Invalid command => $call";
+          
         else
           #err="Missing command!";
-          cmd='do_latest_tag'
+          do_latest_tag
         fi
       ;;
     esac
@@ -532,6 +575,7 @@
     if [ -n "$cmd" ]; then
       #trace "< $call | $cmd $arg >";
       $cmd "$arg";ret=$?;
+
     fi
 
     [ -n "$err" ] && fatal "$err";
@@ -555,7 +599,7 @@
   else
     orig_args=("${@}")
     options "${orig_args[@]}";
-    args=( "${orig_args[@]/\-*}" ); #delete anything that looks like an option
+    args=( "${orig_args[@]/^-*}" ); #delete anything that looks like an option
     main "${args[@]}";ret=$?
   fi
 
