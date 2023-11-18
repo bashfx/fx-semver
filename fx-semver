@@ -432,9 +432,13 @@
     local last_tag=$2
 
     [ -z "$tag" ] && { error "Error. missing tag"; return 1; } || :
-    
-    if ! is_not_pending; then
-      if do_has_semver && is_main; then
+        
+
+
+
+    if do_has_semver && is_main; then
+
+        if ! is_not_pending; then
           if __confirm "${orange}${inv}Warning: You have uncommited changes.${x}${orange}\nIf you commit now, these changes will be added to the tag.\nCheckin with the retag (y/n/q)"; then
             echo -ne "${grey}"
             git add --all
@@ -444,24 +448,26 @@
             error "Cancelled retag."
             exit 1
           fi
+        fi
 
-          note=$(__prompt "${blue}Add a note for the tag${yellow}" "auto tag bump")
+        note=$(__prompt "${blue}Add a note for the tag${yellow}" "auto tag bump")
+        echo -ne "${grey}"
+        git tag -f -a "${tag}" -m "$note";
+        git push --tags --force;
+        echo -ne "${x}"
+        if __confirm "${blue}Push commits for ${tag} and main to origin?${yellow}"; then
           echo -ne "${grey}"
-          git tag -f -a "${tag}" -m "$note";
-          git push --tags --force;
-          echo -ne "${x}"
-          if __confirm "${blue}Push commits for ${tag} and main to origin?${yellow}"; then
-            echo -ne "${grey}"
-            git push origin "${tag}"  #--force
-            git push origin main
-          fi
-          echo -ne "${x}"
-          return 0
-      else
-        error "Error. Cant retag. Current branch must be main semver."
-        return 1
-      fi
+          git push origin "${tag}"  #--force
+          git push origin main
+        fi
+        echo -ne "${x}"
+        return 0
+    else
+      error "Error. Cant retag. Current branch must be main semver."
+      return 1
     fi
+
+
     return 1
   }
 
@@ -472,7 +478,8 @@
     local val=$(next_semver)
     info "Bump latest[ $latest ] -> new[ $val ] (run:${force_bump})"
     if [ $force_bump -eq 0 ]; then
-        do_retag "$val" "$latest"
+      warn 'do retag?'
+      do_retag "$val" "$latest"
     else
       echo "$val"
     fi
