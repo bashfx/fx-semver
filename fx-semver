@@ -1,70 +1,552 @@
 #!/bin/bash
   
-  
-  if [[ "$@" =~ "--meta" ]]; then
+  SEMV_MAJ_LABEL="maj"
+  SEMV_FEAT_LABEL="feat"
+  SEMV_FIX_LABEL="fix"
+  SEMV_DEV_LABEL="dev"
+  SEMV_MIN_BUILD=1000
 
-    [ ! -d "./build" ] && mkdir -p "./build"
-    dest="./build/dev.inf"
+  opt_build_note=1
+  opt_debug=0 #no reason to have this off
+  opt_trace=1
+  opt_yes=1
+#-------------------------------------------------------------------------------
+# Term
+#-------------------------------------------------------------------------------
 
-		echo "Generating build information from Git..."
-		bvers="$(git describe --abbrev=0 --tags)"
-		binc="$(git rev-list HEAD --count)"
-		branch="$(git rev-parse --abbrev-ref HEAD)"
-		printf "DEV_VERS=%s\\n" "$bvers" > $dest
-		printf "DEV_BUILD=%s\\n" "$binc" >> $dest
-		printf "DEV_BRANCH=%s\\n" "$branch" >> $dest
-		printf "DEV_DATE=%s\\n" "$(date +%D)" >> $dest
-    printf "DEV_SEMVER=%s\\n" "$(semvx)" >> $dest
-    #DEV_SEMVER=""
-    cat $dest
-    #git describe --tags --long --dirty --always
+  red=$(tput setaf 202)
+  green=$(tput setaf 2)
+  blue=$(tput setaf 12)
+  orange=$(tput setaf 214)
+  grey=$(tput setaf 247)
+  purple=$(tput setaf 213)
+  x=$(tput sgr0)
+  inv="$(tput rev)"
+  delta="\xE2\x96\xB3"
+  pass="\xE2\x9C\x93"
+  fail="${red}\xE2\x9C\x97"
+  star="\xE2\x98\x85"
+  lambda="\xCE\xBB"
+  idots="\xE2\x80\xA6"
+  bolt="\xE2\x86\xAF"
+  spark="\xe2\x9f\xa1"
+#-------------------------------------------------------------------------------
+# Printers
+#-------------------------------------------------------------------------------
 
-  else
-    # Get the latest tag from git
-    latest_tag=$(git describe --tags --abbrev=0)
+  __printf(){
+    local text color prefix
+    text=${1:-}; color=${2:-white2}; prefix=${!3:-};
+    [ -n "$text" ] && printf "${prefix}${!color}%b${x}" "${text}" 1>&2 || :
+  }
 
-    # # Break the tag into major, minor, and patch numbers
-    # IFS='.' read -r -a version <<< "$latest_tag"
+  __confirm() {
+    local ret=1 answer src
+    opt_yes=${opt_yes:-1}
+    __printf "${1}? > " "white2"
+    [ $opt_yes -eq 0 ] && { __printf "${bld}${green}auto yes${x}\n"; return 0; }
+    src=${BASH_SOURCE:+/dev/stdin} || src='/dev/tty'
 
-    # major=${version[0]} # Remove 'v' prefix if present
-    # minor=${version[1]}
-    # patch=${version[2]}
+    while read -r -n 1 -s answer < $src; do
+      [[ $? -eq 1 ]] && exit 1
+      [[ $answer = [YyNn10tf+\-q] ]] || continue
+      case $answer in
+        [Yyt1+]) __printf "${bld}${green}yes${x}"; val='yes'; ret=0 ;;
+        [Nnf0\-]) __printf "${bld}${red}no${x}"; val='no'; ret=1 ;;
+        [q]) __printf "${bld}${purple}quit${x}\n"; val='quit'; ret=1; exit 1;;
+      esac
+      break
+    done
+    #echo "$val"
+    __printf "\n"
+    return $ret
+  }
 
-    if [[ $latest_tag =~ ^v?([0-9]+)\.([0-9]+)\.([0-9]+)(-.+)?$ ]]; then
+  __prompt(){
+    local msg="$1" default="$2"
+    if [ $opt_yes -eq 1 ]; then
+      read -p "$msg --> " answer
+      [ -n "$answer" ] && echo "$answer" || echo "$default"
+    else 
+      echo "$default"
+    fi
+  }
+
+  warn(){ local text=${1:-} force=${2:-1}; [ $force -eq 0 ] || [ $opt_debug -eq 0 ] &&__printf "$delta $text$x\n" "orange"; }
+  okay(){ local text=${1:-} force=${2:-1}; [ $force -eq 0 ] || [ $opt_debug -eq 0 ] &&__printf "$pass $text$x\n" "green"; }
+  info(){ local text=${1:-} force=${2:-1}; [ $force -eq 0 ] || [ $opt_debug -eq 0 ] && __printf "$spark $text\n" "blue"; }
+
+  trace(){ local text=${1:-}; [ $opt_trace -eq 0 ] && __printf "$idots $text\n" "grey"; }
+  error(){ local text=${1:-}; __printf " $text\n" "fail"; }
+  fatal(){ trap - EXIT; __printf "\n$red$fail $1 $2 \n"; exit 1; }
+
+
+#-------------------------------------------------------------------------------
+# Options maybe one day
+#-------------------------------------------------------------------------------
+
+
+  options(){
+    local this next opts=("${@}");
+    for ((i=0; i<${#opts[@]}; i++)); do
+      this=${opts[i]}
+      next=${opts[i+1]}
+      case "$this" in
+        --debug|-d)
+          opt_debug=0
+          opt_quiet=1
+          ;;
+        --build|-b)
+          opt_build_note=0
+          ;;
+        --yes|-y)
+          opt_yes=0
+          ;;
+        --tra*|-t)
+          opt_trace=0
+          opt_debug=0
+          #opt_quiet=1
+          ;;
+        *)    
+          :
+          ;;
+      esac
+    done
+  }
+
+
+#-------------------------------------------------------------------------------
+# Support FX
+#-------------------------------------------------------------------------------
+
+  split_vers(){
+    local vers_str=$1
+    if [[ $vers_str =~ ^v?([0-9]+)\.([0-9]+)\.([0-9]+)(-.+)?$ ]]; then
         major=${BASH_REMATCH[1]}
         minor=${BASH_REMATCH[2]}
         patch=${BASH_REMATCH[3]}
+        extra=${BASH_REMATCH[4]}
+        echo "$major $minor $patch $extra"
+        return 0
     else
-        echo "Error: Latest tag is not in a valid semver format"
+        return 1
         exit 1
     fi
+  }
+
+  since_last(){
+    local tag=$1 label=$2
+    if is_repo; then
+      local count=$(git log --pretty=format:"%s" ${tag}..HEAD | grep -cE "^${label}:")
+      echo $count
+    else
+      error "Error. current dir not a git repo."
+    fi
+  }
 
 
-    # Count commits for each type and increment version accordingly
-    feature_commits=$(git log --pretty=format:"%s" $latest_tag..HEAD | grep -cE "^feat:")
-    bugfix_commits=$(git log --pretty=format:"%s" $latest_tag..HEAD | grep -cE "^fix:")
-    dev_commits=$(git rev-list HEAD --count)
+#-------------------------------------------------------------------------------
+# Simple FX
+#-------------------------------------------------------------------------------
 
-    if [ "$dev_commits" -lt 1000 ]; then
-      dev_commits=$((dev_commits+1000))
+
+  is_repo(){
+    find . -maxdepth 1 -type d -name ".git" >/dev/null 2>&1
+  }
+
+  is_not_pending(){
+    local res=$(git status --porcelain)
+    [ -z "$res" ] && return 0
+    return 1
+  }
+
+  ls_tags(){
+    git show-ref --tags | cut -d '/' -f 3-
+  }
+
+
+  this_branch(){
+    git branch --show-current
+    #git rev-parse --abbrev-ref HEAD
+  }
+
+  is_main(){
+    local b=$(this_branch)
+    [ -n "$b" ] && [ "$b" = "main" ] && return 0
+    return 1
+  }
+
+  top_tag(){
+    git describe --tags --abbrev=0
+  }
+
+  do_latest_tag(){
+    git tag | sort -V | tail -n1
+  }
+
+  do_find_rev(){
+    local ref=$1
+    git rev-parse "$ref" >/dev/null 2>&1
+  }
+
+  #semver check requires official v1.1.1 format not suffixes
+  do_has_semver(){
+    git tag --list | grep -qE 'v[0-9]+\.[0-9]+\.[0-9]+$'
+  }
+
+
+  do_build_count(){
+    local count=$(git rev-list HEAD --count)
+    count=$((count+$SEMV_MIN_BUILD)) #build floor
+    echo $count
+  }
+
+#-------------------------------------------------------------------------------
+# FX
+#-------------------------------------------------------------------------------
+  print_semver(){
+    local ret=1
+    if [ -n "$1" ]; then
+      echo "-> $1"
+      res=$(split_vers $1)
+      ret=$?
+      if [ $ret -eq 0 ]; then
+        local _i=($res)
+        info "Major: ${_i[0]} Minor: ${_i[1]} Patch: ${_i[2]}  Extra: ${_i[3]} "
+      fi
+      return $ret
+    else
+      return $ret
+    fi
+  }
+
+
+
+  guess_semver(){
+    tag=$(last_tag)
+    major_s=$(since_last "$tag" "$SEMV_MAJ_LABEL")
+    feature_s=$(since_last "$tag" "$SEMV_FEAT_LABEL")
+    bugfix_s=$(since_last "$tag" "$SEMV_FIX_LABEL")
+    patch_s=$(since_last "$tag" "$SEMV_DEV_LABEL")
+    build_s=$(do_build_count)
+    new_version="v$major.$minor.$patch-build$build_s"
+    echo "$new_version"	  
+  }
+
+
+  make_vers_file(){
+    local dest=$1 
+    if [ -w $dest ]; then
+      touch "$dest"
+      info "Generating build information from Git..."
+      bvers="$(last_tag)"
+      binc="$(git rev-list HEAD --count)"
+      branch="$(git rev-parse --abbrev-ref HEAD)"
+      printf "DEV_VERS=%s\\n" "$bvers" > $dest
+      printf "DEV_BUILD=%s\\n" "$binc" >> $dest
+      printf "DEV_BRANCH=%s\\n" "$branch" >> $dest
+      printf "DEV_DATE=%s\\n" "$(date +%D)" >> $dest
+      printf "DEV_SEMVER=%s\\n" "$(semvx)" >> $dest
+      cat "$dest"
+    else
+      error "Error. could not write to dest ($dest)"
+    fi
+  }
+
+
+
+  next_semver(){
+    local _i tag ret major minor patch build ret
+    
+    tag=$(do_latest_tag) #latest not top
+    ret=$?
+    if [ $ret -eq 1 ]; then
+      error "Error. could not find a version tag to bump from"
+      exit 1
     fi
 
-    if [ "$feature_commits" -ne 0 ]; then
-      minor=$((minor+1))
-      patch=0
-    elif [ "$bugfix_commits" -ne 0 ]; then
-      patch=$((patch+1))
+    res=$(split_vers $tag)
+    ret=$?
+
+    if [ $ret -eq 0 ]; then
+      _i=($res)
+      #trace "latest tag -> $tag"
+      major=${_i[0]}
+      minor=${_i[1]}
+      patch=${_i[2]}
+      build=${_i[3]} #not really used as a basis
+      # Count commits for each type and increment version accordingly
+      feature_s=$(since_last "$tag" "feat")
+      bugfix_s=$(since_last "$tag" "fix")
+      patch_s=$(since_last "$tag" "dev")
+      build_s=$(do_build_count)
+      #if updates sincelast, then bump
+      if [ $feature_s -eq 0 ]; then
+        minor=$((minor+1))
+        patch=0
+      elif [ "$feature_s" -eq 0 ]; then
+        patch=$((patch+1))
+      fi
+
+      new_version="v$major.$minor.$patch"
+
+      if [ $opt_build_note -eq 0 ]; then
+        new_version="$new_version-build_$build_s"
+      fi
+
+      trace "maj -> $major"
+      trace "feat -> $minor"
+      trace "fix -> $patch"
+      trace "build -> $build_s" #vs build
+      #trace "$new_version"
+
+      echo -e "$new_version"	 
+
+    else
+      error "invalid format."
+      exit 1
+    fi
+ 
+  }
+
+
+
+  driver(){
+    if [[ "$@" =~ "--docker" ]]; then
+
+      [ ! -d "./build" ] && mkdir -p "./build"
+      dest="./build/dev.inf"
+
+      echo "Generating build information from Git..."
+      make_vers_file $dest
+      #DEV_SEMVER=""
+      cat $dest
+      #git describe --tags --long --dirty --always
+    elif [[ "$@" =~ "--dev" ]]; then
+
+      guess_semver
+      #next_semver
+
+    else
+
+      if ! test_semver "$1"; then
+        error "Error. Input not valid semver format (vM.m.p-bXXX)"
+      fi
+      # #store in file for fun
+      # [ ! -d "./build" ] && mkdir -p "./build"
+      # printf "%s\\n" "$new_version" > "./build/vers.inf"
+
+    fi
+  }
+
+#-------------------------------------------------------------------------------
+# CMDS
+#-------------------------------------------------------------------------------
+
+  do_can_semver(){
+    if is_repo; then
+      local last=$(do_latest_tag)
+      local branch=$(this_branch)
+      if [ -z "$last" ]; then
+        okay "Can semver here. Repo found."
+      else
+        info "Semver found ($last). Use ${inv}semv bump${x}${blue} to update."
+      fi
+    else
+      error "Error. Not in a git repo."
+    fi
+  }
+
+  do_test_semver(){
+    if ! print_semver "$1"; then
+      error "Error. Input not valid semver format (vM.m.p-bXXX)"
+    fi
+  }
+
+
+  do_mark_1(){
+    local last=$(do_latest_tag)
+    if is_repo; then
+      if ! do_has_semver; then
+        if is_main; then
+          warn "Mark 1 will setup an inital semver at v0.0.1"
+          touch README.md
+          git add README.md
+          git commit -m "auto: Update README for repository setup :robot:"
+          git tag -f -a v0.0.1 -m "auto update"; 
+          if __confirm "Push mark 1 tag (v0.0.1) to origin?"; then
+            git push origin v0.0.1 # --force
+          fi
+        else
+          warn "Not in main branch."
+        fi
+      else
+        warn "Repo already has semver $last. Cannot init to v.0.0.1"
+      fi
+    else
+      error "Error. Not in a git repo." 
+    fi
+  }
+
+
+  do_is_greater(){ # B > A
+    local B=$1 A=$2
+    if [ -z "$A" ] || [ -z "$B" ]; then
+      error "Error. Invalid comparison" 
+      exit 1
+    fi
+    if [ "$(printf '%s\n%s' "$A" "$B" | sort -V | tail -n1)" = "$B" ]; then
+      return 0
+    else
+      return 1
+    fi
+    # if do_is_greater "$val" "$latest" ; then
+    #   warn "$val is greater than $latest"
+    # else
+    #   error "hmm..."
+    #fi
+  }
+
+  do_retag(){ 
+
+    local tag=$1
+    local last_tag=$2
+
+    [ -z "$tag" ] && { error "Error. missing tag"; return 1; } || :
+    
+    if ! is_not_pending; then
+      if do_has_semver && is_main; then
+          if __confirm "${orange}${inv}Warning: You have uncommited changes.${x}${orange}\nIf you commit now, these changes will be added to the tag.\nCheckin with the retag (y/n/q)"; then
+            echo -ne "${grey}"
+            git add --all
+            git commit -m "auto: adding all changes for retag @${tag}"
+            echo -ne "${x}"
+          else
+            error "Cancelled retag."
+            exit 1
+          fi
+
+          note=$(__prompt "${blue}Add a note for the tag${yellow}" "auto tag bump")
+          echo -ne "${grey}"
+          git tag -f -a "${tag}" -m "$note";
+          git push --tags --force;
+          echo -ne "${x}"
+          if __confirm "${blue}Push commits for ${tag} and main to origin?${yellow}"; then
+            echo -ne "${grey}"
+            git push origin "${tag}"  #--force
+            git push origin main
+          fi
+          echo -ne "${x}"
+          return 0
+      else
+        error "Error. Cant retag. Current branch must be main semver."
+        return 1
+      fi
+    fi
+    return 1
+  }
+
+
+  do_bump(){
+    local force_bump=${1:-1}
+    local latest=$(do_latest_tag)
+    local val=$(next_semver)
+    info "Bump latest[ $latest ] -> new[ $val ] (run:${force_bump})"
+    if [ $force_bump -eq 0 ]; then
+        do_retag "$val" "$latest"
     fi
 
+  }
 
 
-    new_version="v$major.$minor.$patch-build$dev_commits"
+  do_echo(){
+    info "$@"
+  }
 
-    # Echo the new version
-    echo "$new_version"		
+#-------------------------------------------------------------------------------
+# FX
+#-------------------------------------------------------------------------------
 
-    #store in file for fun
-    [ ! -d "./build" ] && mkdir -p "./build"
-    printf "%s\\n" "$new_version" > "./build/vers.inf"
+  usage(){
+    if command_exists 'docx'; then
+      docx "$BASH_SOURCE" "doc:help"; 
+    fi
+  }
 
+  do_inspect(){
+    declare -F | grep 'do_' | awk '{print $3}'
+    _content=$(sed -n -E "s/[[:space:]]+([^#)]+)\)[[:space:]]+cmd[[:space:]]*=[\'\"]([^\'\"]+)[\'\"].*/\1 \2/p" "$0")
+    __printf "$LINE\n"
+    while IFS= read -r row; do
+      info "$row"
+    done <<< "$_content"
+  }
+
+#-------------------------------------------------------------------------------
+# FX
+#-------------------------------------------------------------------------------
+
+
+  dispatch(){
+    local call="$1" arg="$2" cmd= ret;
+    case $call in
+      run)      cmd='do_echo';; #doesnt work on mac
+      test)     cmd='do_test_semver';;
+      bc)       cmd='do_build_count';;
+      can)      cmd='do_can_semver';;
+      latest)   cmd='do_latest_tag';;
+      mark1)    cmd='do_mark_1';;
+      insp*)    cmd='do_inspect';;
+      next)     cmd='do_bump';;
+      bump)     cmd='do_bump'; arg=0;;
+      *)
+        if [ ! -z "$call" ]; then
+          err="Invalid command => $call";
+        else
+          #err="Missing command!";
+          cmd='do_latest_tag'
+        fi
+      ;;
+    esac
+
+
+    if [ -n "$cmd" ]; then
+      #trace "< $call | $cmd $arg >";
+      $cmd "$arg";ret=$?;
+    fi
+
+    [ -n "$err" ] && fatal "$err";
+    return $ret;
+
+  }
+
+
+
+
+  main(){
+    dispatch "${args[@]}";ret=$?
+  }
+
+
+#-------------------------------------------------------------------------------
+
+
+  if [ "$0" = "-bash" ]; then
+    :
+  else
+    orig_args=("${@}")
+    options "${orig_args[@]}";
+    args=( "${orig_args[@]/\-*}" ); #delete anything that looks like an option
+    main "${args[@]}";ret=$?
   fi
+
+#====================================doc:help!==================================
+#
+#  
+#  \n\t> ${g}semver <cmd> [arg] [--flags]${x}
+#
+#
+#
+#${x}
+#=================================!doc:help=====================================
+
