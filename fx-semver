@@ -348,28 +348,20 @@
 
 
     if [ -n "$latest" ]; then
-
       if [ $label != "any" ]; then
-        info "try $label"
         res=$(git log "${latest}"..HEAD --grep="^${label}:" --pretty=format:"%h - %s")
         ret=$?
       else
-        info "try any"
         res=$(git log "${latest}"..HEAD  --pretty=format:"%h - %s")
         ret=$?
       fi
-
       if [ -n "$res" ]; then
-        info "changes=>\n$res"
-        error "Found some changes!"
+        warn "Found changes ($label)=>\n$res"
         return 0
       else
         okay "No labeled (${label}:) commits after $latest." && return 0
         return 1
       fi
-      
-
-
     else
       error "Error. No semver tag found."
       return 1
