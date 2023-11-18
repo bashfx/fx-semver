@@ -1,5 +1,7 @@
-#!/bin/bash
-  
+#!/usr/bin/env bash
+
+  SEMV_EXEC="$0" #self reference
+
   SEMV_MAJ_LABEL="maj"
   SEMV_FEAT_LABEL="feat"
   SEMV_FIX_LABEL="fix"
@@ -7,6 +9,7 @@
   SEMV_MIN_BUILD=1000
 
   opt_build_note=1
+  opt_build_dir=1
   opt_debug=0 #no reason to have this off
   opt_trace=1
   opt_yes=1
@@ -20,6 +23,7 @@
   orange=$(tput setaf 214)
   grey=$(tput setaf 247)
   purple=$(tput setaf 213)
+  yellow=$(tput setaf 11)
   x=$(tput sgr0)
   inv="$(tput rev)"
   delta="\xE2\x96\xB3"
@@ -102,6 +106,9 @@
         --yes|-y)
           opt_yes=0
           ;;
+        --dist|-B)
+          opt_build_dir=0
+          ;;
         --tra*|-t)
           opt_trace=0
           opt_debug=0
@@ -133,6 +140,8 @@
         exit 1
     fi
   }
+
+  #git log --grep="feat:" --pretty=format:"%h - %s"  #v0.1.0
 
   since_last(){
     local tag=$1 label=$2
@@ -222,31 +231,21 @@
 
 
 
-  guess_semver(){
-    tag=$(last_tag)
-    major_s=$(since_last "$tag" "$SEMV_MAJ_LABEL")
-    feature_s=$(since_last "$tag" "$SEMV_FEAT_LABEL")
-    bugfix_s=$(since_last "$tag" "$SEMV_FIX_LABEL")
-    patch_s=$(since_last "$tag" "$SEMV_DEV_LABEL")
-    build_s=$(do_build_count)
-    new_version="v$major.$minor.$patch-build$build_s"
-    echo "$new_version"	  
-  }
-
 
   make_vers_file(){
     local dest=$1 
+    touch "$dest"
     if [ -w $dest ]; then
-      touch "$dest"
+      
       info "Generating build information from Git..."
-      bvers="$(last_tag)"
-      binc="$(git rev-list HEAD --count)"
-      branch="$(git rev-parse --abbrev-ref HEAD)"
+      bvers="$(do_latest_tag)"
+      binc="$(do_build_count)"
+      branch="$(this_branch)"
       printf "DEV_VERS=%s\\n" "$bvers" > $dest
       printf "DEV_BUILD=%s\\n" "$binc" >> $dest
       printf "DEV_BRANCH=%s\\n" "$branch" >> $dest
       printf "DEV_DATE=%s\\n" "$(date +%D)" >> $dest
-      printf "DEV_SEMVER=%s\\n" "$(semvx)" >> $dest
+      printf "DEV_SEMVER=%s\\n" "$($SEMV_EXEC)" >> $dest #configure this top of script
       cat "$dest"
     else
       error "Error. could not write to dest ($dest)"
@@ -310,38 +309,41 @@
   }
 
 
+  do_build_file(){
+    local name="${1:-build.inf}"
 
-  driver(){
-    if [[ "$@" =~ "--docker" ]]; then
-
+    if [ $opt_build_dir -eq 0 ]; then
       [ ! -d "./build" ] && mkdir -p "./build"
-      dest="./build/dev.inf"
-
-      echo "Generating build information from Git..."
-      make_vers_file $dest
-      #DEV_SEMVER=""
-      cat $dest
-      #git describe --tags --long --dirty --always
-    elif [[ "$@" =~ "--dev" ]]; then
-
-      guess_semver
-      #next_semver
-
+      dest="./build/${name}"  
     else
-
-      if ! test_semver "$1"; then
-        error "Error. Input not valid semver format (vM.m.p-bXXX)"
-      fi
-      # #store in file for fun
-      # [ ! -d "./build" ] && mkdir -p "./build"
-      # printf "%s\\n" "$new_version" > "./build/vers.inf"
-
+      dest="./${name}"  
     fi
-  }
+
+    make_vers_file $dest
+
+    if [ $opt_trace -eq 0 ]; then
+      cat $dest
+    fi
+
+  } 
+
 
 #-------------------------------------------------------------------------------
 # CMDS
 #-------------------------------------------------------------------------------
+  do_pending(){
+    local latest=$(do_latest_tag)
+    local label=${1:-'dev'}
+    if [ -n "$latest" ]; then
+      res=$(git log "${latest}"..HEAD --grep="^${label}:" --pretty=format:"%h - %s")
+      ret=$?
+      [ $ret -eq 0 ] && okay "No labeled (${label}:) commits after $latest." && return 0
+      error "Found some changes!"
+    else
+      error "Error. No semver tag found."
+      return 1
+    fi
+  }
 
   do_can_semver(){
     if is_repo; then
@@ -458,6 +460,11 @@
 
   }
 
+  do_tags(){
+    local tags=$(git tag)
+    info "tags\n$tags"
+  }
+
 
   do_echo(){
     info "$@"
@@ -496,9 +503,13 @@
       can)      cmd='do_can_semver';;
       latest)   cmd='do_latest_tag';;
       mark1)    cmd='do_mark_1';;
+      tags)     cmd='do_tags';;
+      pend)     cmd='do_pending';;
+      file)     cmd='do_build_file';;
       insp*)    cmd='do_inspect';;
       next)     cmd='do_bump';;
       bump)     cmd='do_bump'; arg=0;;
+
       *)
         if [ ! -z "$call" ]; then
           err="Invalid command => $call";
