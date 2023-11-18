@@ -145,12 +145,16 @@
 
   since_last(){
     local tag=$1 label=$2
+
     if is_repo; then
+      #local count1=$(git log "${tag}"..HEAD --grep="^${label}:" --pretty=format:"%s")
       local count=$(git log --pretty=format:"%s" ${tag}..HEAD | grep -cE "^${label}:")
       echo $count
+      trace "[$count] [$label] changes since [$tag]"
     else
       error "Error. current dir not a git repo."
     fi
+
   }
 
 
@@ -294,7 +298,7 @@
       if [ $feature_s -ne 0 ]; then
         minor=$((minor+1))
         patch=0
-      elif [ "$feature_s" -ne 0 ]; then
+      elif [ "$patch_s" -ne 0 ]; then
         patch=$((patch+1))
       fi
 
@@ -446,8 +450,8 @@
         if [ "$tag" == "$last_tag" ] || ! do_is_greater "$tag" "$last_tag"; then
           error "Latest tag already applied. Bumping would move tag to a new commit."
           exit 1
-        else
-          info "$tag $last_tag"
+        else 
+          info "Change detected: $last_tag => $tag"
         fi
 
         if ! is_not_staged; then
@@ -488,9 +492,8 @@
     local force_bump=${1:-1}
     local latest=$(do_latest_tag)
     local val=$(next_semver)
-    info "Bump latest[ $latest ] -> new[ $val ] (run:${force_bump})"
-    if [ $force_bump -eq 0 ]; then
-      warn 'do retag?'
+    trace "Bump latest[ $latest ] -> new[ $val ] (run:${force_bump})"
+    if [ "$force_bump" == "0" ]; then
       do_retag "$val" "$latest"
     else
       echo "$val"
