@@ -335,8 +335,13 @@
     local latest=$(do_latest_tag)
     local label=${1:-'dev'}
     if [ -n "$latest" ]; then
-      res=$(git log "${latest}"..HEAD --grep="^${label}:" --pretty=format:"%h - %s")
-      ret=$?
+      if [ $label != "any" ]; then
+        res=$(git log "${latest}"..HEAD --grep="^${label}:" --pretty=format:"%h - %s")
+        ret=$?
+      else
+        res=$(git log "${latest}"..HEAD  --pretty=format:"%h - %s")
+        ret=$?
+      fi
       [ $ret -eq 0 ] && okay "No labeled (${label}:) commits after $latest." && return 0
       error "Found some changes!"
     else
@@ -378,6 +383,7 @@
           git tag -f -a v0.0.1 -m "auto update"; 
           if __confirm "Push mark 1 tag (v0.0.1) to origin?"; then
             git push origin v0.0.1 # --force
+            git push origin main
           fi
         else
           warn "Not in main branch."
@@ -466,9 +472,9 @@
   }
 
 
-  do_echo(){
-    info "$@"
-  }
+  # do_echo(){
+  #   info "$@"
+  # }
 
 #-------------------------------------------------------------------------------
 # FX
@@ -497,7 +503,7 @@
   dispatch(){
     local call="$1" arg="$2" cmd= ret;
     case $call in
-      run)      cmd='do_echo';; #doesnt work on mac
+      #run)      cmd='do_echo';; #doesnt work on mac
       test)     cmd='do_test_semver';;
       bc)       cmd='do_build_count';;
       can)      cmd='do_can_semver';;
