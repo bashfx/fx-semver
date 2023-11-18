@@ -1,0 +1,70 @@
+#!/bin/bash
+  
+  
+  if [[ "$@" =~ "--meta" ]]; then
+
+    [ ! -d "./build" ] && mkdir -p "./build"
+    dest="./build/dev.inf"
+
+		echo "Generating build information from Git..."
+		bvers="$(git describe --abbrev=0 --tags)"
+		binc="$(git rev-list HEAD --count)"
+		branch="$(git rev-parse --abbrev-ref HEAD)"
+		printf "DEV_VERS=%s\\n" "$bvers" > $dest
+		printf "DEV_BUILD=%s\\n" "$binc" >> $dest
+		printf "DEV_BRANCH=%s\\n" "$branch" >> $dest
+		printf "DEV_DATE=%s\\n" "$(date +%D)" >> $dest
+    printf "DEV_SEMVER=%s\\n" "$(semvx)" >> $dest
+    #DEV_SEMVER=""
+    cat $dest
+    #git describe --tags --long --dirty --always
+
+  else
+    # Get the latest tag from git
+    latest_tag=$(git describe --tags --abbrev=0)
+
+    # # Break the tag into major, minor, and patch numbers
+    # IFS='.' read -r -a version <<< "$latest_tag"
+
+    # major=${version[0]} # Remove 'v' prefix if present
+    # minor=${version[1]}
+    # patch=${version[2]}
+
+    if [[ $latest_tag =~ ^v?([0-9]+)\.([0-9]+)\.([0-9]+)(-.+)?$ ]]; then
+        major=${BASH_REMATCH[1]}
+        minor=${BASH_REMATCH[2]}
+        patch=${BASH_REMATCH[3]}
+    else
+        echo "Error: Latest tag is not in a valid semver format"
+        exit 1
+    fi
+
+
+    # Count commits for each type and increment version accordingly
+    feature_commits=$(git log --pretty=format:"%s" $latest_tag..HEAD | grep -cE "^feat:")
+    bugfix_commits=$(git log --pretty=format:"%s" $latest_tag..HEAD | grep -cE "^fix:")
+    dev_commits=$(git rev-list HEAD --count)
+
+    if [ "$dev_commits" -lt 1000 ]; then
+      dev_commits=$((dev_commits+1000))
+    fi
+
+    if [ "$feature_commits" -ne 0 ]; then
+      minor=$((minor+1))
+      patch=0
+    elif [ "$bugfix_commits" -ne 0 ]; then
+      patch=$((patch+1))
+    fi
+
+
+
+    new_version="v$major.$minor.$patch-build$dev_commits"
+
+    # Echo the new version
+    echo "$new_version"		
+
+    #store in file for fun
+    [ ! -d "./build" ] && mkdir -p "./build"
+    printf "%s\\n" "$new_version" > "./build/vers.inf"
+
+  fi
