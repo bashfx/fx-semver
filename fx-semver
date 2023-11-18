@@ -279,11 +279,13 @@
       bugfix_s=$(since_last "$tag" "fix")
       patch_s=$(since_last "$tag" "dev")
       build_s=$(do_build_count)
+
+      trace "f[$feature_s] b[$bugfix_s] p[$patch_s] $build_s"
       #if updates sincelast, then bump
-      if [ $feature_s -eq 0 ]; then
+      if [ $feature_s -ne 0 ]; then
         minor=$((minor+1))
         patch=0
-      elif [ "$feature_s" -eq 0 ]; then
+      elif [ "$feature_s" -ne 0 ]; then
         patch=$((patch+1))
       fi
 
