@@ -166,7 +166,7 @@
   }
 
 
-  is_not_pending(){
+  is_not_staged(){
     local res=$(git status --porcelain)
     [ -z "$res" ] && return 0
     return 1
@@ -433,12 +433,16 @@
 
     [ -z "$tag" ] && { error "Error. missing tag"; return 1; } || :
         
-
-
-
     if do_has_semver && is_main; then
 
-        if ! is_not_pending; then
+        if [ "$tag" == "$last_tag" ] || ! do_is_greater "$tag" "$last_tag"; then
+          error "Latest tag already applied. Bumping would move tag to a new commit."
+          exit 1
+        else
+          info "$tag $last_tag"
+        fi
+
+        if ! is_not_staged; then
           if __confirm "${orange}${inv}Warning: You have uncommited changes.${x}${orange}\nIf you commit now, these changes will be added to the tag.\nCheckin with the retag (y/n/q)"; then
             echo -ne "${grey}"
             git add --all
@@ -545,6 +549,9 @@
 
   }
 
+  do_status(){
+    git status --porcelain
+  }
 #-------------------------------------------------------------------------------
 # FX
 #-------------------------------------------------------------------------------
@@ -561,11 +568,12 @@
       mark1)    cmd='do_mark_1';;
       tags)     cmd='do_tags';;
       auto)     cmd='do_auto';;
+      st)       cmd='do_status';;
       pend)     cmd='do_pending';;
       file)     cmd='do_build_file';;
       insp*)    cmd='do_inspect';;
       next)     cmd='do_bump';;
-      bump)     cmd='do_bump'; arg=0;;
+      bump)     cmd='do_bump'; arg=0; ;;
       *)
         if [ ! -z "$call" ]; then
       
