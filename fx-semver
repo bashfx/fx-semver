@@ -302,15 +302,6 @@
         patch=$((patch+1))
       fi
 
-      if [ "$note_s" -ne 0 ] && [ $opt_dev_note -eq 1 ]; then
-        if __confirm "${red}There are ${inv}dev fixes${x}${red} on the current version and ${inv}[--dev] flag${x}${red} is disabled!\n\n${orange}You should only continue if the dev notes have been resolved.\nOtherwise you can cancel and run again with --dev enabled.\nContinue (y/n/q)"; then
-          info '~~~> Bumping anyway'
-        else
-          error 'Cancelled.'
-          exit 1
-        fi
-      fi
-
       new_version="v$major.$minor.$patch"
 
       if [ $opt_dev_note -eq 0 ]; then
@@ -330,7 +321,23 @@
       trace "build -> $build_s" #vs build
       #trace "$new_version"
 
+      if [ "$note_s" -ne 0 ] && [ $opt_dev_note -eq 1 ]; then
+        if __confirm "${red}There are ${inv}[$note_s]$dev notes${x}${red} on the current version and ${inv}[--dev] flag${x}${red} is disabled!\n
+        $tag ->  $new_version
+        \n${orange}You should only bump versions if the dev notes have been resolved.\nOtherwise you can cancel and run again with --dev enabled.\nContinue (y/n/q)"; then
+          info '~~~> Bumping anyway'
+        else
+          error 'Cancelled.'
+          return 1
+        fi
+      elif [ "$note_s" -ne 0 ]; then
+        info "${inv}[--dev enabled] --> (${tail_s/-/})"
+      else
+      :
+      fi
+
       echo -e "$new_version"	 
+      return 0
 
     else
       error "invalid format."
@@ -505,16 +512,18 @@
 
 
   do_bump(){
-    local force_bump=${1:-1}
+    local ret force_bump=${1:-1}
     local latest=$(do_latest_tag)
     local val=$(next_semver)
-    trace "Bump latest[ $latest ] -> new[ $val ] (run:${force_bump})"
-    if [ "$force_bump" == "0" ]; then
-      do_retag "$val" "$latest"
-    else
-      echo "$val"
+    ret=$?
+    if [ $ret -eq 0 ] && [ -n "$val" ]; then
+      trace "bump latest[ $latest ] -> new[ $val ] (run:${force_bump})"
+      if [ "$force_bump" == "0" ]; then
+        do_retag "$val" "$latest"
+      else
+        echo "$val"
+      fi
     fi
-
   }
 
   do_tags(){

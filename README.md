@@ -49,3 +49,5 @@ If a label `dev:...` is set then this marks the commit chain for a particular ve
 If you do a feature or fix bump with a prior dev label, you will be prompted to confirm the dirty version bump into a clean version. 
 
 To generate a -devXXX or -buildXXX version, the `--dev` flag will automatically pick -buildXXX if there are no dev labels on the current chain of commits.
+
+
