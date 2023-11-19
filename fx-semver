@@ -641,8 +641,8 @@
       mark1)    cmd='do_mark_1';;
       tags)     cmd='do_tags';;
       auto)     cmd='do_auto';;
-      st)       cmd='do_status';;
-      pend)     cmd='do_pending';;
+      st*)      cmd='do_status';;
+      pend*)    cmd='do_pending';;
       fwd)      cmd='do_has_forward';;
       file)     cmd='do_build_file';;
       insp*)    cmd='do_inspect';;
