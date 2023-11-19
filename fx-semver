@@ -8,7 +8,7 @@
   SEMV_DEV_LABEL="dev"
   SEMV_MIN_BUILD=1000
 
-  opt_build_note=1
+  opt_dev_note=1
   opt_build_dir=1
   opt_debug=0 #no reason to have this off
   opt_trace=1
@@ -100,13 +100,13 @@
           opt_debug=0
           opt_quiet=1
           ;;
-        --build|-b)
-          opt_build_note=0
+        --dev|-N)
+          opt_dev_note=0
           ;;
         --yes|-y)
           opt_yes=0
           ;;
-        --dist|-B)
+        --build|-B)
           opt_build_dir=0
           ;;
         --tra*|-t)
@@ -289,11 +289,11 @@
       build=${_i[3]} #not really used as a basis
       # Count commits for each type and increment version accordingly
       feature_s=$(since_last "$tag" "feat")
-      bugfix_s=$(since_last "$tag" "fix")
-      patch_s=$(since_last "$tag" "dev")
+      patch_s=$(since_last "$tag" "fix")
+      note_s=$(since_last "$tag" "dev")
       build_s=$(do_build_count)
 
-      trace "f[$feature_s] b[$bugfix_s] p[$patch_s] $build_s"
+      trace "f[$feature_s] b[$patch_s] p[$note_s] $build_s"
       #if updates sincelast, then bump
       if [ $feature_s -ne 0 ]; then
         minor=$((minor+1))
@@ -302,10 +302,19 @@
         patch=$((patch+1))
       fi
 
+
+
       new_version="v$major.$minor.$patch"
 
-      if [ $opt_build_note -eq 0 ]; then
-        new_version="$new_version-build_$build_s"
+      if [ $opt_dev_note -eq 0 ]; then
+        if [ "$note_s" -ne 0 ]; then
+          trace "dev notes since last build"
+          tail_s="-dev_$note_s"
+        else
+          trace "clean build"
+          tail_s="-build_$build_s"
+        fi
+        new_version="${new_version}${tail_s}"
       fi
 
       trace "maj -> $major"
