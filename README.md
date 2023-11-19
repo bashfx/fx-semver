@@ -2,7 +2,7 @@
 
 ## Overview
 
-The SEMV script is a comprehensive Bash tool designed for managing semantic versioning (FX-SEMVER) in Git repositories. It provides a range of functionalities to automate versioning tasks, handle Git tags, and streamline development workflows. This tool is ideal for projects that require precise version tracking and integration with Git operations.
+The SEMV script is a comprehensive Bash tool designed for managing semantic versioning (FX-SEMVER) in Git repositories. It provides a range of functionalities to automate versioning tasks, handle Git tags, and streamline development workflows. This tool is ideal for projects that require precise version tracking and integration with Git operations!
 
 ## Features
 
