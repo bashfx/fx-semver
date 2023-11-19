@@ -304,7 +304,7 @@
 
       if [ "$note_s" -ne 0 ] && [ $opt_dev_note -eq 1 ]; then
         if __confirm "${red}There are ${inv}dev fixes${x}${red} on the current version and ${inv}[--dev] flag${x}${red} is disabled!\n\n${orange}You should only continue if the dev notes have been resolved.\nOtherwise you can cancel and run again with --dev enabled.\nContinue (y/n/q)"; then
-          error 'At your own risk!'
+          info '~~~> Bumping anyway'
         else
           error 'Cancelled.'
           exit 1
