@@ -302,13 +302,20 @@
         patch=$((patch+1))
       fi
 
-
+      if [ "$note_s" -ne 0 ] && [ $opt_dev_note -eq 1 ]; then
+        if __confirm "${red}There are ${inv}dev fixes${x}${red} on the current version and ${inv}[--dev] flag${x}${red} is disabled!\n\n${orange}You should only continue if the dev notes have been resolved.\nOtherwise you can cancel and run again with --dev enabled.\nContinue (y/n/q)"; then
+          error 'At your own risk!'
+        else
+          error 'Cancelled.'
+          exit 1
+        fi
+      fi
 
       new_version="v$major.$minor.$patch"
 
       if [ $opt_dev_note -eq 0 ]; then
         if [ "$note_s" -ne 0 ]; then
-          trace "dev notes since last build"
+          trace "dev notes since last build ($tag)"
           tail_s="-dev_$note_s"
         else
           trace "clean build"
@@ -592,7 +599,7 @@
       pend)     cmd='do_pending';;
       file)     cmd='do_build_file';;
       insp*)    cmd='do_inspect';;
-      next)     cmd='do_bump';;
+      next|dry) cmd='do_bump';;
       bump)     cmd='do_bump'; arg=0; ;;
       *)
         if [ ! -z "$call" ]; then
