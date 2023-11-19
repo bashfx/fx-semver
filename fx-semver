@@ -188,7 +188,7 @@
 
   is_main(){
     local b=$(this_branch)
-    [ -n "$b" ] && [ "$b" = "main" ] && return 0
+    [ -n "$b" ] && [ "$b" = "main" ] || [ "$b" = "master" ] && return 0
     return 1
   }
 
@@ -268,12 +268,12 @@
 
 
   next_semver(){
-    local _i tag ret major minor patch build ret
+    local _i tag ret major minor patch build ret opt_force=${1:-1}
     
     tag=$(do_latest_tag) #latest not top
     ret=$?
     if [ $ret -eq 1 ]; then
-      error "Error. could not find a version tag to bump from"
+      #error "Error. could not find a version tag to bump from"
       exit 1
     fi
 
@@ -321,19 +321,21 @@
       trace "build -> $build_s" #vs build
       #trace "$new_version"
 
-      if [ "$note_s" -ne 0 ] && [ $opt_dev_note -eq 1 ]; then
-        if __confirm "${red}There are ${inv}[$note_s]$dev notes${x}${red} on the current version and ${inv}[--dev] flag${x}${red} is disabled!\n
-        $tag ->  $new_version
-        \n${orange}You should only bump versions if the dev notes have been resolved.\nOtherwise you can cancel and run again with --dev enabled.\nContinue (y/n/q)"; then
-          info '~~~> Bumping anyway'
+      if [ $opt_force -ne 0 ]; then
+        if [ "$note_s" -ne 0 ] && [ $opt_dev_note -eq 1 ]; then
+          if __confirm "${red}There are ${inv}[$note_s]$dev notes${x}${red} on the current version and ${inv}[--dev] flag${x}${red} is disabled!\n
+          $tag ->  $new_version
+          \n${orange}You should only bump versions if the dev notes have been resolved.\nOtherwise you can cancel and run again with --dev enabled.\nContinue (y/n/q)"; then
+            info '~~~> Bumping anyway'
+          else
+            error 'Cancelled.'
+            return 1
+          fi
+        elif [ "$note_s" -ne 0 ]; then
+          info "${inv}[--dev enabled] --> (${tail_s/-/})"
         else
-          error 'Cancelled.'
-          return 1
+        :
         fi
-      elif [ "$note_s" -ne 0 ]; then
-        info "${inv}[--dev enabled] --> (${tail_s/-/})"
-      else
-      :
       fi
 
       echo -e "$new_version"	 
@@ -372,8 +374,6 @@
   do_pending(){
     local latest=$(do_latest_tag)
     local label=${1:-'dev'}
-
-
     if [ -n "$latest" ]; then
       if [ $label != "any" ]; then
         res=$(git log "${latest}"..HEAD --grep="^${label}:" --pretty=format:"%h - %s")
@@ -450,8 +450,10 @@
       exit 1
     fi
     if [ "$(printf '%s\n%s' "$A" "$B" | sort -V | tail -n1)" = "$B" ]; then
+      trace "$B > $A ?"
       return 0
     else
+      trace "$B <= $A ?"
       return 1
     fi
     # if do_is_greater "$val" "$latest" ; then
@@ -470,11 +472,12 @@
         
     if do_has_semver && is_main; then
 
-        if [ "$tag" == "$last_tag" ] || ! do_is_greater "$tag" "$last_tag"; then
+        #hopefully this works lol
+        if do_is_greater "$tag" "$last_tag"; then
+          info "Change detected: $last_tag => $tag"
+        else 
           error "Latest tag [$last_tag] already applied. Bumping would move tag to a new commit."
           exit 1
-        else 
-          info "Change detected: $last_tag => $tag"
         fi
 
         if ! is_not_staged; then
@@ -498,6 +501,7 @@
           echo -ne "${grey}"
           git push origin "${tag}"  #--force
           git push origin main
+          
         fi
         echo -ne "${x}"
         return 0
@@ -531,10 +535,27 @@
     info "tags\n$tags"
   }
 
+  # this does almost the same thing as retag check but specific versions
+  # can be used externally
+  do_has_forward(){
+    local ret v1 v2
+    v1="$(do_latest_tag)"
+    v2="$(next_semver 0)"
+    #warn "$v1 : $v2"
+    if [ -z "$v1" ] || [ -z "$v2" ]; then
+     return 1
+    fi
+    if [[ "$v2" != "$v1" ]] &&  do_is_greater "$v2" "$v1" ; then
+      #okay "Yay future change! $v1 -> $v2"
+      echo -e "$v2"
+      ret=0
+    else
+      # -> version is same or less??
+      ret=1
+    fi
+    return $ret
+  }
 
-  # do_echo(){
-  #   info "$@"
-  # }
 
 #-------------------------------------------------------------------------------
 # FX
@@ -556,29 +577,42 @@
   }
 
   do_auto(){
-    local arg=$1 
-    info "try auto"
+    local path=$1 call=$2 ret arg
 
     #try to get the version of a files parent dir
-    if [ -f "$arg" ]; then
-      parent_dir=$(dirname "$arg")
+    if [ -f "$path" ]; then
+      parent_dir=$(dirname "$path")
       if [ -d "$parent_dir" ]; then
         arg="$parent_dir"
       fi
     fi
 
-    if [ -d "$arg" ]; then
-      info 'is arg a dir'
-      cd "$arg"
+    if [ -d "$path" ]; then
+      cd "$path"
       if is_repo; then
-        echo "$(do_latest_tag)"
-        return 0
+        #info "call is $call"
+
+        case $call in
+          chg) cmd='do_pending';arg='any'; ;;
+          st) cmd='do_status';;
+          fwd) cmd='do_has_forward';;
+          *)
+            cmd='do_latest_tag'
+          ;;
+        esac
+
+        if [ -n "$cmd" ]; then
+          $cmd "${arg}";ret=$?;
+          #[ $ret -eq 0 ] && okay "... $cmd good."
+        fi
+
+        return $ret
+
       else
-        echo "$PWD"
         return 1
       fi      
     else
-      warn "arg was not a dir $arg"
+     :
     fi
 
     return 1
@@ -586,7 +620,10 @@
   }
 
   do_status(){
-    git status --porcelain
+    local count=$(git status --porcelain | wc -l | awk '{print $1}')
+    echo -e "$count"
+    [ $count -gt 0 ] && return 0
+    return 1
   }
 #-------------------------------------------------------------------------------
 # FX
@@ -594,7 +631,7 @@
 
 
   dispatch(){
-    local call="$1" arg="$2" cmd= ret;
+    local call="$1" arg="$2" arg2="$3" cmd= ret;
     case $call in
       #run)      cmd='do_echo';; #doesnt work on mac
       test)     cmd='do_test_semver';;
@@ -606,6 +643,7 @@
       auto)     cmd='do_auto';;
       st)       cmd='do_status';;
       pend)     cmd='do_pending';;
+      fwd)      cmd='do_has_forward';;
       file)     cmd='do_build_file';;
       insp*)    cmd='do_inspect';;
       next|dry) cmd='do_bump';;
@@ -625,8 +663,8 @@
 
     if [ -n "$cmd" ]; then
       #trace "< $call | $cmd $arg >";
-      $cmd "$arg";ret=$?;
-
+      $cmd "$arg" "$arg2";ret=$?;
+      return $ret;
     fi
 
     [ -n "$err" ] && fatal "$err";
@@ -639,6 +677,7 @@
 
   main(){
     dispatch "${args[@]}";ret=$?
+    return $ret;
   }
 
 
