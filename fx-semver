@@ -471,7 +471,7 @@
     if do_has_semver && is_main; then
 
         if [ "$tag" == "$last_tag" ] || ! do_is_greater "$tag" "$last_tag"; then
-          error "Latest tag already applied. Bumping would move tag to a new commit."
+          error "Latest tag [$last_tag] already applied. Bumping would move tag to a new commit."
           exit 1
         else 
           info "Change detected: $last_tag => $tag"
@@ -494,7 +494,7 @@
         git tag -f -a "${tag}" -m "$note";
         git push --tags --force;
         echo -ne "${x}"
-        if __confirm "${blue}Push commits for ${tag} and main to origin?${yellow}"; then
+        if __confirm "${blue}Push commits for ${tag} and main to origin (y/n/q)"; then
           echo -ne "${grey}"
           git push origin "${tag}"  #--force
           git push origin main
