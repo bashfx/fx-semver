@@ -159,42 +159,96 @@
 
 
 #-------------------------------------------------------------------------------
-# Simple FX
+# Is/Has Checks
 #-------------------------------------------------------------------------------
 
-
-  is_repo(){
+  is_repo_hard(){
     local count=$(find . -maxdepth 1 -type d -name ".git" | wc -l | awk '{print $1}')
     [ $count -gt 0 ] && return 0
     return 1
   }
 
 
-  is_not_staged(){
-    local res=$(git status --porcelain)
-    [ -z "$res" ] && return 0
+  is_repo(){
+    git rev-parse --is-inside-work-tree > /dev/null 2>&1
+  }
+
+  is_main(){
+    local b=$(this_branch)
+    [ -n "$b" ] && [ "$b" == "main" ] || [ "$b" == "master" ] && return 0
     return 1
   }
 
-  ls_tags(){
-    git show-ref --tags | cut -d '/' -f 3-
+  has_commits(){
+    is_repo && git rev-parse HEAD > /dev/null 2>&1
   }
 
+  is_not_staged(){
+    #git status --porcelain
+    git diff --exit-code > /dev/null 2>&1
+  }
+
+  #semver check requires official v1.1.1 format not suffixes
+  has_semver(){
+    git tag --list | grep -qE 'v[0-9]+\.[0-9]+\.[0-9]+$'
+  }
+
+
+#-------------------------------------------------------------------------------
+# Simple Info
+#-------------------------------------------------------------------------------
 
   this_branch(){
     git branch --show-current
     #git rev-parse --abbrev-ref HEAD
   }
 
-  is_main(){
-    local b=$(this_branch)
-    [ -n "$b" ] && [ "$b" = "main" ] || [ "$b" = "master" ] && return 0
-    return 1
+  this_user(){
+    git config user.name|tr -d ' '
+  }
+
+  this_project(){
+    basename $(git rev-parse --show-toplevel)
+  }
+
+#-------------------------------------------------------------------------------
+# Simple FX
+#-------------------------------------------------------------------------------
+
+  ls_tags(){
+    git show-ref --tags | cut -d '/' -f 3-
   }
 
   top_tag(){
     git describe --tags --abbrev=0
   }
+
+
+
+  which_main_hard(){
+    branches=$(git branch)
+    if [[ "$branches" =~ main|master ]]; then
+      echo "$BASH_REMATCH"
+    fi
+  }
+
+  which_main(){
+    git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@'
+  }
+
+
+  last_commit(){
+    #git log -1 --pretty=format:%cd --date=iso
+    if has_commits; then
+      if git rev-parse HEAD >/dev/null 2>&1; then
+        git show -s --format=%ct HEAD
+        return 0
+      fi
+    fi
+    echo "0"
+    return 1
+  }
+    
 
   do_latest_tag(){
     if is_repo; then
@@ -211,11 +265,10 @@
     git rev-parse "$ref" >/dev/null 2>&1
   }
 
-  #semver check requires official v1.1.1 format not suffixes
-  do_has_semver(){
-    git tag --list | grep -qE 'v[0-9]+\.[0-9]+\.[0-9]+$'
-  }
 
+  do_all_count(){
+    git rev-list --all --count
+  }
 
   do_build_count(){
     local count=$(git rev-list HEAD --count)
@@ -223,10 +276,60 @@
     echo $count
   }
 
+  do_days_ago(){
+    local last=$(last_commit)
+    local now=$(date +%s)
+    local diff=$((now-last))
+    local days=$((diff/86400))
+    echo $days
+  }
+
+  do_since_pretty(){
+    local last=$(last_commit)
+    #local last_date=($1)
+    local now=$(date +%s)
+    local midnight=$(date -v0H -v0M -v0S +%s) #mac
+    local diff=$((now-last))
+    local days=$((diff/86400))
+    local hours=$(((diff/3600)%24))
+    local minutes=$(((diff/60)%60))
+    local seconds=$((diff%60))
+    if [ $days -eq 0 ]; then
+      if [ $last -lt $midnight ]; then
+        daystr="Yesterday"
+      else
+        daystr="Today"
+      fi
+    elif [ $days -eq 1 ]; then
+      daystr="$days day"
+    else
+      daystr="$days days"
+    fi
+
+    if [ $hours -ne 0 ]; then
+      daystr="$daystr $hours hrs"
+    fi
+
+    if [ $minutes -ne 0 ]; then
+      daystr="$daystr $minutes min"
+    fi
+
+    if [ $seconds -ne 0 ]; then
+      daystr="$daystr $seconds sec"
+    fi
+
+    if [ $days -eq 0 ] && [ $hours -eq 0 ] && [ $minutes -eq 0 ] && [ $seconds -lt 30 ]; then
+      daystr="Just now"
+    fi
+
+    echo "$daystr"
+  }
+
+
 #-------------------------------------------------------------------------------
 # FX
 #-------------------------------------------------------------------------------
-  print_semver(){
+  do_print_semver(){
     local ret=1
     if [ -n "$1" ]; then
       echo "-> $1"
@@ -411,7 +514,7 @@
   }
 
   do_test_semver(){
-    if ! print_semver "$1"; then
+    if ! do_print_semver "$1"; then
       error "Error. Input not valid semver format (vM.m.p-bXXX)"
     fi
   }
@@ -420,7 +523,7 @@
   do_mark_1(){
     local last=$(do_latest_tag)
     if is_repo; then
-      if ! do_has_semver; then
+      if ! has_semver; then
         if is_main; then
           warn "Mark 1 will setup an inital semver at v0.0.1"
           touch README.md
@@ -470,7 +573,7 @@
 
     [ -z "$tag" ] && { error "Error. missing tag"; return 1; } || :
         
-    if do_has_semver && is_main; then
+    if has_semver && is_main; then
 
         #hopefully this works lol
         if do_is_greater "$tag" "$last_tag"; then
@@ -567,6 +670,51 @@
     fi
   }
 
+
+  do_info(){
+
+    # 1> can repo
+    if is_repo; then
+
+      if has_commits; then
+        info "Commits were found."
+      else
+        warn "No commits found."
+      fi
+      # 2> repo info
+      branch=$(this_branch)
+      user=$(git config user.name|tr -d ' ')
+      project=$(this_project)
+      build=$(do_build_count)
+      main=$(which_main)
+      since=$(do_since_pretty)
+      days=$(do_days_ago)
+      # 3> semver info
+      # 4> next semver
+      info "Repo info ${branch} [${user}] [${project}] [${build}] [${main}] [${days}]"
+    else
+      error "Error. Not in a git repo."
+    fi
+
+  }
+
+  do_last(){
+    if is_repo; then
+      days=$(do_days_ago)
+      since=$(do_since_pretty) 
+      text='Last commit was'
+      if [ $days -lt 7 ]; then
+        okay "$text $since"
+      elif [ $days -lt 30 ]; then
+        warn "$text $since"
+      else
+        error "$text $since"
+      fi
+    else
+      error "Error. Not in a git repo."
+    fi
+  }
+
   do_inspect(){
     declare -F | grep 'do_' | awk '{print $3}'
     _content=$(sed -n -E "s/[[:space:]]+([^#)]+)\)[[:space:]]+cmd[[:space:]]*=[\'\"]([^\'\"]+)[\'\"].*/\1 \2/p" "$0")
@@ -646,6 +794,9 @@
       fwd)      cmd='do_has_forward';;
       file)     cmd='do_build_file';;
       insp*)    cmd='do_inspect';;
+      last)     cmd='do_last';;
+      info)     cmd='do_info';;
+      since)    cmd='do_since_pretty';;
       next|dry) cmd='do_bump';;
       bump)     cmd='do_bump'; arg=0; ;;
       *)
