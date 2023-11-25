@@ -2,7 +2,8 @@
 
   SEMV_EXEC="$0" #self reference
 
-  SEMV_MAJ_LABEL="maj"
+
+  SEMV_MAJ_LABEL="brk"
   SEMV_FEAT_LABEL="feat"
   SEMV_FIX_LABEL="fix"
   SEMV_DEV_LABEL="dev"
@@ -233,7 +234,9 @@
   }
 
   which_main(){
-    git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@'
+    if has_commits; then
+      git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@'
+    fi
   }
 
 
@@ -257,6 +260,18 @@
       [ -n "$latest" ] && return 0 || :
     fi
     return 1
+  }
+
+
+  do_latest_semver(){
+    if has_semver; then
+      latest=$(git tag --list | grep -E 'v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1)
+      echo "$latest"
+      [ -n "$latest" ] && return 0 || :
+    else
+      error "Error. No semver tags found."
+      return 1
+    fi
   }
 
 
@@ -369,8 +384,45 @@
   }
 
 
+  do_change_count(){
+    local tag=${1:-$(do_latest_tag)}
+    #info "Tag is $tag"
 
-  next_semver(){
+    b_major=0
+    b_minor=0
+    b_patch=0
+    break_s=$(since_last "$tag" "$SEMV_MAJ_LABEL")
+    feature_s=$(since_last "$tag" "$SEMV_FEAT_LABEL")
+    patch_s=$(since_last "$tag" "$SEMV_FIX_LABEL")
+    note_s=$(since_last "$tag" "$SEMV_DEV_LABEL")
+    build_s=$(do_build_count)
+    trace "f[$feature_s] b[$patch_s] p[$note_s] $build_s"
+    #if updates sincelast, then bump
+    if [ $break_s -ne 0 ]; then
+      #warn 'found break'
+      b_major=1
+      b_minor=0
+      b_patch=0
+    elif [ $feature_s -ne 0 ]; then
+      #warn 'found feature'
+      b_minor=1
+      patch=0
+    elif [ "$patch_s" -ne 0 ]; then
+      #warn 'found patch'
+      b_patch=1
+    elif [ "$note_s" -ne 0 ]; then
+      #warn 'found note'
+      #no semver bumps
+      :
+    else
+      return 1 # no changes
+    fi
+    #echo "$major $minor $patch $build_s $note_s"
+    return 0
+  }
+
+
+  do_next_semver(){
     local _i tag ret major minor patch build ret opt_force=${1:-1}
     
     tag=$(do_latest_tag) #latest not top
@@ -390,24 +442,26 @@
       minor=${_i[1]}
       patch=${_i[2]}
       build=${_i[3]} #not really used as a basis
-      # Count commits for each type and increment version accordingly
-      feature_s=$(since_last "$tag" "feat")
-      patch_s=$(since_last "$tag" "fix")
-      note_s=$(since_last "$tag" "dev")
-      build_s=$(do_build_count)
 
-      trace "f[$feature_s] b[$patch_s] p[$note_s] $build_s"
-      #if updates sincelast, then bump
-      if [ $feature_s -ne 0 ]; then
-        minor=$((minor+1))
-        patch=0
-      elif [ "$patch_s" -ne 0 ]; then
-        patch=$((patch+1))
+      # Count commits for each type and increment version accordingly
+      do_change_count "$tag" #sets b_major, b_minor, b_patch build_s note_s
+
+      ret=$?
+      if [ $ret -eq 1 ]; then
+        if [ $opt_dev_note -eq 0 ]; then
+          error "Error. no changes since last tag ($tag)"
+          exit 1
+        fi
+      else 
+        major=$((major+$b_major))
+        minor=$((minor+$b_minor))
+        patch=$((patch+$b_patch))
       fi
 
       new_version="v$major.$minor.$patch"
 
       if [ $opt_dev_note -eq 0 ]; then
+
         if [ "$note_s" -ne 0 ]; then
           trace "dev notes since last build ($tag)"
           tail_s="-dev_$note_s"
@@ -416,6 +470,7 @@
           tail_s="-build_$build_s"
         fi
         new_version="${new_version}${tail_s}"
+
       fi
 
       trace "maj -> $major"
@@ -621,7 +676,7 @@
   do_bump(){
     local ret force_bump=${1:-1}
     local latest=$(do_latest_tag)
-    local val=$(next_semver)
+    local val=$(do_next_semver)
     ret=$?
     if [ $ret -eq 0 ] && [ -n "$val" ]; then
       trace "bump latest[ $latest ] -> new[ $val ] (run:${force_bump})"
@@ -643,8 +698,15 @@
   do_has_forward(){
     local ret v1 v2
     v1="$(do_latest_tag)"
-    v2="$(next_semver 0)"
+    v2="$(do_next_semver 0)"
     #warn "$v1 : $v2"
+    
+    #TODO: get granular forward info
+    # do_change_count "$v1"    
+    # $b_major
+    # $b_minor
+    # $b_major
+
     if [ -z "$v1" ] || [ -z "$v2" ]; then
      return 1
     fi
@@ -676,22 +738,55 @@
     # 1> can repo
     if is_repo; then
 
-      if has_commits; then
-        info "Commits were found."
-      else
-        warn "No commits found."
-      fi
-      # 2> repo info
-      branch=$(this_branch)
       user=$(git config user.name|tr -d ' ')
+
+      if [ -z "$user" ]; then
+        user="${red}-unset-${x}"
+      fi
+      branch=$(this_branch)
+      main=$(which_main)  
       project=$(this_project)
-      build=$(do_build_count)
-      main=$(which_main)
-      since=$(do_since_pretty)
-      days=$(do_days_ago)
-      # 3> semver info
-      # 4> next semver
-      info "Repo info ${branch} [${user}] [${project}] [${build}] [${main}] [${days}]"
+
+      if has_commits; then
+        # 2> repo info
+        build=$(do_build_count)
+        changes=$(do_status)
+        since=$(do_since_pretty)
+        days=$(do_days_ago)
+
+        if [ $changes -gt 0 ]; then
+          changes="${green}+$changes${x}"
+        else
+          changes="${grey}none${x}"
+        fi
+
+        msg+="~~ About this repo ~~ \n${spark} User --> [${user}]\n"
+        msg+="${spark} Repo --> [${project}] [${branch}] [${main}]\n"
+        msg+="${spark} Stat --> [${changes}] [${build}] \n"
+        msg+="${spark} Last --> [${days}] ${since}\n"
+        if has_semver; then
+          semver=$(do_latest_semver)
+          next=$(do_next_semver 0)
+          if [ -z "$next" ]; then
+            next="${red}-none-${x}"
+          elif [ "$next" == "$semver" ]; then
+            next="${grey}-same-${x}"
+          fi
+          msg+="${spark} Vers --> [${semver}] [${next}]"
+        else
+          semver="${red}-unset-${x}"
+          msg+="${spark} Vers --> [${semver}]"
+        fi
+
+        __printf "$msg"
+
+        # 3> semver info
+        # 4> next semver
+        
+      else
+        warn "Repo --> [${user}${orange}] [${project}] [${branch}] [${red}no commits found${orange}]"
+      fi
+
     else
       error "Error. Not in a git repo."
     fi
@@ -702,6 +797,7 @@
     if is_repo; then
       days=$(do_days_ago)
       since=$(do_since_pretty) 
+      semver=$(do_latest_tag)
       text='Last commit was'
       if [ $days -lt 7 ]; then
         okay "$text $since"
@@ -785,18 +881,18 @@
       test)     cmd='do_test_semver';;
       bc)       cmd='do_build_count';;
       can)      cmd='do_can_semver';;
-      latest)   cmd='do_latest_tag';;
+      last)     cmd='do_latest_semver';;
       mark1)    cmd='do_mark_1';;
       tags)     cmd='do_tags';;
+      chg)      cmd='do_change_count';;
       auto)     cmd='do_auto';;
       st*)      cmd='do_status';;
       pend*)    cmd='do_pending';;
       fwd)      cmd='do_has_forward';;
       file)     cmd='do_build_file';;
       insp*)    cmd='do_inspect';;
-      last)     cmd='do_last';;
+      since)    cmd='do_last';;
       info)     cmd='do_info';;
-      since)    cmd='do_since_pretty';;
       next|dry) cmd='do_bump';;
       bump)     cmd='do_bump'; arg=0; ;;
       *)
@@ -806,7 +902,7 @@
           
         else
           #err="Missing command!";
-          do_latest_tag
+          do_latest_semver
         fi
       ;;
     esac
