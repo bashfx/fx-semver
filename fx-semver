@@ -901,6 +901,40 @@
     fi
   }
 
+
+
+  do_fetch_tags(){
+    before_fetch=$(git tag)
+    output=$(git fetch --tags 2>&1)
+    ret=$?
+    after_fetch=$(git tag)
+    if [ "$before_fetch" != "$after_fetch" ]; then
+      okay "New tag changes found."
+    else
+      error "No tag changes."
+    fi
+    return $ret;
+  }
+
+  do_latest_remote(){
+    do_fetch_tags > /dev/null 2>&1
+    fetch_status=$?
+    git describe --tags $(git rev-list --tags --max-count=1);
+  }
+
+  do_remote_compare(){
+    local tag=$(git describe --tags --abbrev=0)
+    local remote_tag=$(do_latest_remote)
+    if do_is_greater "$remote_tag" "$tag"; then
+      info "Local version outdated [$tag] => $remote_tag."
+      exit 1
+    fi 
+    okay "Version [$remote_tag] up to date."
+    return 0;
+  }
+
+
+
 #-------------------------------------------------------------------------------
 # FX
 #-------------------------------------------------------------------------------
@@ -913,9 +947,12 @@
       test)      cmd='do_test_semver';;
       bc)        cmd='do_build_count';;
       can)       cmd='do_can_semver';;
-      last)      cmd='do_latest_semver';;
+      last|tag)  cmd='do_latest_semver';;
       lbl)       cmd='do_label_help';;
       mark1|new) cmd='do_mark_1';;
+      fetch)     cmd='do_fetch_tags';;
+      remote)    cmd='do_latest_remote';;
+      upst*)     cmd='do_remote_compare';;
       tags)      cmd='do_tags';;
       chg)       cmd='do_change_count';;
       auto)      cmd='do_auto';;
