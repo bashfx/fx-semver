@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
+
+#-------------------------------------------------------------------------------
+#=====================================code!=====================================
+#-------------------------------------------------------------------------------
+
   SEMV_EXEC="$0" #self reference
 
 
@@ -38,6 +43,8 @@
 #-------------------------------------------------------------------------------
 # Printers
 #-------------------------------------------------------------------------------
+
+  command_exists(){ type "$1" &> /dev/null;  }
 
   __printf(){
     local text color prefix
@@ -548,7 +555,7 @@
         return 1
       fi
     else
-      error "Error. No semver tag found."
+      error "Error. No semver version tag found. try semv new?"
       return 1
     fi
 
@@ -559,7 +566,7 @@
       local last=$(do_latest_tag)
       local branch=$(this_branch)
       if [ -z "$last" ]; then
-        okay "Can semver here. Repo found."
+        okay "Can semver here. Repo found. Use <semv new> to set new 0.0.1 version."
       else
         info "Semver found ($last). Use ${inv}semv bump${x}${blue} to update."
       fi
@@ -607,7 +614,11 @@
       error "Error. Invalid comparison" 
       exit 1
     fi
-    if [ "$(printf '%s\n%s' "$A" "$B" | sort -V | tail -n1)" = "$B" ]; then
+    trace "$B : $A ?"
+
+    if [ "$B" == "$A" ]; then #sanity check sort didnt work on mac for some reason
+      return 1;
+    elif [ "$(printf '%s\n%s' "$A" "$B" | sort -V | tail -n1)" = "$B" ]; then
       trace "$B > $A ?"
       return 0
     else
@@ -726,11 +737,6 @@
 # FX
 #-------------------------------------------------------------------------------
 
-  usage(){
-    if command_exists 'docx'; then
-      docx "$BASH_SOURCE" "doc:help"; 
-    fi
-  }
 
 
   do_info(){
@@ -869,6 +875,23 @@
     [ $count -gt 0 ] && return 0
     return 1
   }
+
+  do_label_help(){
+        msg+="~~ Semv Commit labels ~~ \n"
+        msg+="${spark} ${green}brk:${x}\t --> Use for breaking changes \t[Major] \n"
+        msg+="${spark} ${green}feat:${x}\t --> Use for new features added\t[Minor] \n"
+        msg+="${spark} ${green}fix:${x}\t --> Use for fixing bugs \t[Patch] \n"
+        msg+="${spark} ${green}dev:${x}\t --> Use for dev note locks \t[Dev]\n"
+    __printf "$msg"
+
+  }
+
+  usage(){
+    if command_exists 'docx'; then
+      docx "$BASH_SOURCE" "doc:help"; 
+    fi
+  }
+
 #-------------------------------------------------------------------------------
 # FX
 #-------------------------------------------------------------------------------
@@ -878,28 +901,30 @@
     local call="$1" arg="$2" arg2="$3" cmd= ret;
     case $call in
       #run)      cmd='do_echo';; #doesnt work on mac
-      test)     cmd='do_test_semver';;
-      bc)       cmd='do_build_count';;
-      can)      cmd='do_can_semver';;
-      last)     cmd='do_latest_semver';;
-      mark1)    cmd='do_mark_1';;
-      tags)     cmd='do_tags';;
-      chg)      cmd='do_change_count';;
-      auto)     cmd='do_auto';;
-      st*)      cmd='do_status';;
-      pend*)    cmd='do_pending';;
-      fwd)      cmd='do_has_forward';;
-      file)     cmd='do_build_file';;
-      insp*)    cmd='do_inspect';;
-      since)    cmd='do_last';;
-      info)     cmd='do_info';;
-      next|dry) cmd='do_bump';;
-      bump)     cmd='do_bump'; arg=0; ;;
+      test)      cmd='do_test_semver';;
+      bc)        cmd='do_build_count';;
+      can)       cmd='do_can_semver';;
+      last)      cmd='do_latest_semver';;
+      lbl)       cmd='do_label_help';;
+      mark1|new) cmd='do_mark_1';;
+      tags)      cmd='do_tags';;
+      chg)       cmd='do_change_count';;
+      auto)      cmd='do_auto';;
+      st*)       cmd='do_status';;
+      pend*)     cmd='do_pending';;
+      fwd)       cmd='do_has_forward';;
+      file)      cmd='do_build_file';;
+      insp*)     cmd='do_inspect';;
+      since)     cmd='do_last';;
+      info)      cmd='do_info';;
+      next|dry)  cmd='do_bump';;
+      bump)      cmd='do_bump'; arg=0; ;;
+      help)      cmd='usage';;
       *)
         if [ ! -z "$call" ]; then
       
           err="Invalid command => $call";
-          
+          usage
         else
           #err="Missing command!";
           do_latest_semver
@@ -940,13 +965,32 @@
     main "${args[@]}";ret=$?
   fi
 
+#-------------------------------------------------------------------------------
+#=====================================!code=====================================
 #====================================doc:help!==================================
 #
+#  \n\t${b}semv [command] ${x}
 #  
-#  \n\t> ${g}semver <cmd> [arg] [--flags]${x}
-#
-#
-#
-#${x}
+#  \t${o}insp${x} - shows funcs and dispatch keys (full help not done yet)
+#  \t${o}info${x} - shows repo/branch info
+#  \t${o}lbl${x}  - shows comit labels to use for versions (mini help)
+#  \t${o}new${x}  - initializes the repo to use semv style tags with 0.0.1
+#  \t${o}bump${x} - create the next version tag and commit
+#  \t${o}pend${x} - check for new dev flags since last version
+# 
+#  \t${w2}Commit Labels:${x}
+#  \t${w}Commit messages must be prefixed by one of the labels in order
+#  \tfor auto version incrementer to work.${x}\n
+#  \t${spark} ${o}brk:${x}\t --> Use for breaking changes \t[Major]
+#  \t${spark} ${o}feat:${x}\t --> Use for new features added\t[Minor]
+#  \t${spark} ${o}fix:${x}\t --> Use for fixing bugs \t[Patch]
+#  \t${spark} ${o}dev:${x}\t --> Use for dev note locks \t[Dev]
+# 
+#  \t${r}Dev Build Mode: (ex:v1.0.0-build289)${x}
+#  \t${w}The dev label prevents the version from bumping, instead 
+#  \tappending a build number to the tag 
+#  \tthis helps when you are iterating on fix/features
+#  \twithout triggering a version bump. Switch off by using${x}
+#  \t<bump> or <auto> commands.
+# 
 #=================================!doc:help=====================================
-
