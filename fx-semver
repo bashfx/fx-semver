@@ -258,7 +258,7 @@
     echo "0"
     return 1
   }
-    
+ 
 
   do_latest_tag(){
     if is_repo; then
@@ -310,7 +310,16 @@
     local last=$(last_commit)
     #local last_date=($1)
     local now=$(date +%s)
-    local midnight=$(date -v0H -v0M -v0S +%s) #mac
+
+    # Get the timestamp for midnight
+    if [ "$(uname)" = "Darwin" ]; then
+        # macOS
+        local midnight=$(date -v0H -v0M -v0S +%s)
+    else
+        # Linux
+        local midnight=$(date --date="today 00:00:00" +%s)
+    fi
+
     local diff=$((now-last))
     local days=$((diff/86400))
     local hours=$(((diff/3600)%24))
