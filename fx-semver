@@ -4,7 +4,8 @@
 #-------------------------------------------------------------------------------
 #=====================================code!=====================================
 #-------------------------------------------------------------------------------
-
+  export TERM=xterm-256color;
+  
   SEMV_EXEC="$0" #self reference
 
 
@@ -923,17 +924,35 @@
   }
 
   do_remote_compare(){
-    local tag=$(git describe --tags --abbrev=0)
-    local remote_tag=$(do_latest_remote)
+    local tag=$(git describe --tags --abbrev=0);
+    local remote_tag=$(do_latest_remote);
     if do_is_greater "$remote_tag" "$tag"; then
       info "Local version outdated [$tag] => $remote_tag."
-      exit 1
+      echo 1;
+      return 1
     fi 
     okay "Version [$remote_tag] up to date."
+    echo 0;
     return 0;
   }
 
+  do_snip_majors(){
+    git tag | grep -vE 'v[0-9]+\.[0]+\.[0]+$' | xargs -n 1 git tag -d
+  }
 
+  do_snip_majors_remote(){
+    git tag | grep -vE 'v[0-9]+\.[0]+\.[0]+$' | xargs -n 1 -I {} git push origin --delete {}
+  }
+
+  do_snip_minors(){
+    git tag | grep -vE 'v[0-9]+\.[1-9][0-9]*\.0$' | xargs -n 1 git tag -d
+    #regex='v[0-9]+\.[1-9][0-9]*\.0$'
+    # test> git tag | grep -vE 'v[0-9]+\.[1-9][0-9]*\.0$' | xargs -n 1 echo
+  }
+
+  do_snip_minors_remote(){
+    git tag | grep -vE 'v[0-9]+\.[1-9][0-9]*\.0$'  | xargs -n 1 -I {} git push origin --delete {}
+  }
 
 #-------------------------------------------------------------------------------
 # FX
@@ -941,7 +960,7 @@
 
 
   dispatch(){
-    local call="$1" arg="$2" arg2="$3" cmd= ret;
+    local call="$1" arg="$2" arg2="$3" cmd= ret=0;
     case $call in
       #run)      cmd='do_echo';; #doesnt work on mac
       test)      cmd='do_test_semver';;
@@ -980,8 +999,7 @@
 
 
     if [ -n "$cmd" ]; then
-      #trace "< $call | $cmd $arg >";
-      $cmd "$arg" "$arg2";ret=$?;
+      $cmd "$arg" "$arg2"; ret=$?;
       return $ret;
     fi
 
@@ -989,8 +1007,6 @@
     return $ret;
 
   }
-
-
 
 
   main(){
@@ -1023,6 +1039,7 @@
 #  \t${o}new${x}  - initializes the repo to use semv style tags with 0.0.1
 #  \t${o}bump${x} - create the next version tag and commit
 #  \t${o}pend${x} - check for new dev flags since last version
+#  \t${o}upst${x} - check for new remote tags
 # 
 #  \t${w2}Commit Labels:${x}
 #  \t${w}Commit messages must be prefixed by one of the labels in order
