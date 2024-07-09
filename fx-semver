@@ -957,6 +957,22 @@
     return 0;
   }
 
+  
+
+  do_rbuild_compare(){
+    local build=$(git rev-list HEAD --count);
+    local rbuild=$(git rev-list HEAD --count origin/main);
+    if do_is_greater "$remote_tag" "$tag"; then
+      info "Local version outdated [$build] => $rbuild."
+      echo 1;
+      return 1
+    fi 
+    okay "Version Build [$build] up to date."
+    echo 0;
+    return 0;
+  }
+
+
   do_snip_majors(){
     git tag | grep -vE 'v[0-9]+\.[0]+\.[0]+$' | xargs -n 1 git tag -d
   }
@@ -993,6 +1009,7 @@
       fetch)     cmd='do_fetch_tags';;
       remote)    cmd='do_latest_remote';;
       upst*)     cmd='do_remote_compare';;
+      rbc*)      cmd='do_rbuild_compare';;
       tags)      cmd='do_tags';;
       chg)       cmd='do_change_count';;
       auto)      cmd='do_auto';;
@@ -1061,6 +1078,7 @@
 #  \t${o}bump${x} - create the next version tag and commit
 #  \t${o}pend${x} - check for new dev flags since last version
 #  \t${o}upst${x} - check for new remote tags
+#  \t${o}rbc${x}  - remote build compare
 # 
 #  \t${w2}Commit Labels:${x}
 #  \t${w}Commit messages must be prefixed by one of the labels in order
