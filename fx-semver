@@ -299,6 +299,14 @@
     echo $count
   }
 
+  do_remote_build_count(){
+    local count=$(git rev-list HEAD --count origin/main)
+    count=$((count+$SEMV_MIN_BUILD)) #build floor
+    echo $count
+  }
+
+
+
   do_days_ago(){
     local last=$(last_commit)
     local now=$(date +%s)
@@ -766,29 +774,42 @@
       if has_commits; then
         # 2> repo info
         build=$(do_build_count)
+        rbuild=$(do_remote_build_count)
+
         changes=$(do_status)
         since=$(do_since_pretty)
         days=$(do_days_ago)
 
         if [ $changes -gt 0 ]; then
-          changes="${green}+$changes${x}"
+          changes="${green}Edits +$changes${x}"
         else
           changes="${grey}none${x}"
         fi
 
+        if [ $rbuild -gt $build ]; then
+          rbuild="${red}${rbuild}${x}"
+        elif [ $rbuild -eq $build ]; then
+          :
+        else
+          build="${green}${build}${x}"
+        fi
+
         msg+="~~ About this repo ~~ \n${spark} User --> [${user}]\n"
         msg+="${spark} Repo --> [${project}] [${branch}] [${main}]\n"
-        msg+="${spark} Stat --> [${changes}] [${build}] \n"
-        msg+="${spark} Last --> [${days}] ${since}\n"
+        msg+="${spark} Stat --> [${changes}]  \n"
+        msg+="${spark} Bld  --> [${build}:${rbuild}] \n"
+        msg+="${spark} Last --> [${days} days] ${since}\n"
         if has_semver; then
           semver=$(do_latest_semver)
           next=$(do_next_semver 0)
           if [ -z "$next" ]; then
             next="${red}-none-${x}"
+          elif do_is_greater "$next" "$semver"; then
+            next="${green} -next-> ${next}${x}"
           elif [ "$next" == "$semver" ]; then
-            next="${grey}-same-${x}"
+            next="<-same-> ${next}"
           fi
-          msg+="${spark} Vers --> [${semver}] [${next}]"
+          msg+="${spark} Vers --> [${semver} ${next}]"
         else
           semver="${red}-unset-${x}"
           msg+="${spark} Vers --> [${semver}]"
