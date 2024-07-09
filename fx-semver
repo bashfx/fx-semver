@@ -991,6 +991,20 @@
     git tag | grep -vE 'v[0-9]+\.[1-9][0-9]*\.0$'  | xargs -n 1 -I {} git push origin --delete {}
   }
 
+  do_snip(){
+    #todo: fix when there is nothing to snip
+    warn "Snip command will snip the following minor tags..."
+    git tag | grep -vE 'v[0-9]+\.[1-9][0-9]*\.0$' | xargs -n 1 echo
+    if __confirm "Are you sure you want to snip these minors"; then
+      do_snip_minors
+      do_snip_minors_remote
+      okay "Snips are done! no returning now"
+    else
+      error "Snip cancelled."
+    fi
+
+  }
+
 #-------------------------------------------------------------------------------
 # FX
 #-------------------------------------------------------------------------------
@@ -1019,6 +1033,7 @@
       file)      cmd='do_build_file';;
       insp*)     cmd='do_inspect';;
       since)     cmd='do_last';;
+      snip)      cmd='do_snip';;
       info)      cmd='do_info';;
       next|dry)  cmd='do_bump';;
       bump)      cmd='do_bump'; arg=0; ;;
