@@ -787,7 +787,7 @@
         fi
 
         if [ $rbuild -gt $build ]; then
-          rbuild="${red}${rbuild}${x}"
+          rbuild="${green}${rbuild}${x}"
         elif [ $rbuild -eq $build ]; then
           :
         else
@@ -944,7 +944,14 @@
     git describe --tags $(git rev-list --tags --max-count=1);
   }
 
+  do_fetch(){
+    if is_repo; then
+      git fetch --all > /dev/null 2>&1
+    fi;
+  }
+
   do_remote_compare(){
+    do_fetch;
     local tag=$(git describe --tags --abbrev=0);
     local remote_tag=$(do_latest_remote);
     if do_is_greater "$remote_tag" "$tag"; then
@@ -960,10 +967,11 @@
   
 
   do_rbuild_compare(){
-    local build=$(git rev-list HEAD --count);
-    local rbuild=$(git rev-list HEAD --count origin/main);
-    if do_is_greater "$remote_tag" "$tag"; then
-      info "Local version outdated [$build] => $rbuild."
+    do_fetch;
+    local build=$(do_build_count);
+    local rbuild=$(do_remote_build_count);
+    if do_is_greater "$rbuild" "$build"; then
+      warn "Local version outdated [$build] => $rbuild."
       echo 1;
       return 1
     fi 
@@ -1016,6 +1024,7 @@
       #run)      cmd='do_echo';; #doesnt work on mac
       test)      cmd='do_test_semver';;
       bc)        cmd='do_build_count';;
+      bcr)       cmd='do_remote_build_count';;
       can)       cmd='do_can_semver';;
       last|tag)  cmd='do_latest_semver';;
       lbl)       cmd='do_label_help';;
